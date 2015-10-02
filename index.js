@@ -111,9 +111,6 @@
 
 
       return this._handleTask;
-      return function () {
-
-      };
     },
 
     _getTaskCallback: function (taskHandler) {
