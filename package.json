@@ -11,16 +11,16 @@
     "url": "git+https://github.com/antixrist/node-throttled-concurrent-queue.git"
   },
   "keywords": [
-    "throttle",
-    "concurrent",
     "queue",
-    "sync",
-    "async",
-    "concurrency",
     "task",
     "job",
+    "concurrent",
+    "concurrency",
+    "sync",
+    "async",
     "synchronous",
-    "asynchronous"
+    "asynchronous",
+    "throttle"
   ],
   "author": {
     "name": "antixrist",
@@ -33,7 +33,6 @@
   },
   "homepage": "https://github.com/antixrist/node-throttled-concurrent-queue#readme",
   "dependencies": {
-    "extend": "^3.0.0",
-    "throttle-debounce": "^0.1.1"
+    "extend": "^3.0.0"
   }
 }
