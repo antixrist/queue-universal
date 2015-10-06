@@ -1,4 +1,5 @@
 (function (undefined) {
+  var root = this;
   var _extend = require('extend');
   var _EventEmitter = require('events').EventEmitter;
   var _utils = require('util');
@@ -6,16 +7,17 @@
 
   /**
    * If "interval" is a {Function} then they must be return a {Number}.
-   * @type {{concurrency: number, interval: number|Function}}
+   * @type {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}}
    * @private
    */
   var _defaults = {
-    concurrency: 1,
-    interval: 200
+    concurrency: 0,
+    intervalByStart: 0,
+    intervalByFinished: 0,
   };
 
   /**
-   * @param {{concurrency: number, interval: number|Function}} _options
+   * @param {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}} _options
    * @returns {ThrottledConcurrentQueue}
    * @extends _EventEmitter
    * @constructor
@@ -34,6 +36,8 @@
   };
   _utils.inherits(ThrottledConcurrentQueue, _EventEmitter);
 
+  //ThrottledConcurrentQueue.namespace = 'ThrottledConcurrentQueue';
+
   _extend(ThrottledConcurrentQueue.prototype, {
 
     _setDefaults: function () {
@@ -49,6 +53,9 @@
 
       this._stopCount = 0;
       this._pauseCount = 0;
+
+      this._lastTaskRunnedTime = 0;
+      this._lastTaskFinishedTime = 0;
 
       this._stats = [];
       this._statsDefault = {
@@ -77,8 +84,9 @@
       this.length = this._tasks.length;
     },
 
-    _getInterval: function () {
-      var interval = this._options.interval;
+    _getInterval: function (interval) {
+      if (!interval) { return 0; }
+
       if (_utils.isFunction(interval)) {
         interval = interval();
       }
@@ -87,62 +95,102 @@
       return interval;
     },
 
+    _getIntervalByStart: function () {
+      return this._getInterval(this._options.intervalByStart);
+    },
+
+    _getIntervalByFinished: function () {
+      return this._getInterval(this._options.intervalByFinished);
+    },
+
     _nextTask: function () {
       var self = this;
-      if (!this.length || this._tasksInProgress >= this._options.concurrency || this._itPaused ||
-          (_.getTime() - this._lastTimeRunned) < this._getInterval()
+      var currentTime = _.getTime();
+
+      //console.log('_nextTask', currentTime, self._lastTaskRunnedTime, currentTime - self._lastTaskRunnedTime, self._getIntervalByStart());
+
+      if (self.isPaused() || self.isStopped() ||
+          !self._tasks.length || (self._options.concurrency && self._tasksInProgress.length >= self._options.concurrency) ||
+          (currentTime - self._lastTaskRunnedTime) < self._getIntervalByStart() ||
+          (currentTime - self._lastTaskFinishedTime) < self._getIntervalByFinished()
       ) { return; }
 
       setImmediate(function () {
-        var task = self.shift();
-        task._started_at = _.getTime();
-        self._lastTimeRunned = task._started_at;
-        self._tasksInProgress++;
-        self.emit('task:start');
+        var currentTime = _.getTime();
 
-        var taskHandler = self._getTaskHandler(task);
-        taskHandler(task(self._getTaskCallback(taskHandler)));
+        if (self.isPaused() || self.isStopped() ||
+            !self._tasks.length || (self._options.concurrency && self._tasksInProgress.length >= self._options.concurrency) ||
+            (currentTime - self._lastTaskRunnedTime) < self._getIntervalByStart() ||
+            (currentTime - self._lastTaskFinishedTime) < self._getIntervalByFinished()
+        ) { return; }
+
+        var task = self.shift();
+        task.started_at = currentTime;
+        task.finished_at = null;
+
+        self._lastTaskRunnedTime = currentTime;
+        self._tasksInProgress.push(task);
+
+        var callback = self._getTaskUserCallback(task);
+
+        self.emit('task:start', task);
+
+        var syncResult = task(callback);
+
+        if (typeof syncResult != 'undefined') {
+          self._handleTask(syncResult, task);
+        }
       });
     },
 
-    _getTaskHandler: function (task, itWasAsync) {
+    _getTaskUserCallback: function (task) {
       var self = this;
-      itWasAsync = !!itWasAsync;
 
-
-      return this._handleTask;
+      return (function (task) {
+        return function () {
+          var args = _.toArray(arguments);
+          self._handleTask.apply(self, args.concat(task));
+        }
+      })(task);
     },
 
-    _getTaskCallback: function (taskHandler) {
-      var self = this;
+    _handleTask: function () {
+      var args = _.toArray(arguments);
+      var task = args.slice(args.length - 1);
 
-      return function () {
-        var args = _.toArray(arguments);
-        if (args.length === 1 && _.isArray(args[0])) {
-          args = [args];
+      if (task.finished_at) { return; }
+
+      var currentTime = _.getTime();
+      task.finished_at = currentTime;
+      this._lastTaskFinishedTime = currentTime;
+      this._tasksFinishedCount++;
+
+      // TODO: не ищется (таск из аргументов и в этом массиве считаются разными, сцук). внедрить uuid
+      var index = this._tasksInProgress.indexOf(task);
+      if (index >= 0) {
+        this._tasksInProgress.splice(index, 1);
+      }
+
+      console.log('_handleTask', index, this._tasksInProgress);
+
+      this.emit.apply(this, ['task:end'].concat(args));
+
+      if (!this._tasksInProgress.length && !this.length) {
+        this.emit('empty');
+      } else {
+
+        var waiting = false;
+        if ((currentTime - this._lastTaskRunnedTime) < this._getIntervalByStart()) {
+          waiting = true;
+          setTimeout(this._nextTask.bind(this), this._getIntervalByStart() + (currentTime - this._lastTaskRunnedTime) + 15);
+        }
+        if ((currentTime - this._lastTaskFinishedTime) < this._getIntervalByFinished()) {
+          waiting = true;
+          setTimeout(this._nextTask.bind(this), this._getIntervalByFinished() + (currentTime - this._lastTaskFinishedTime) + 15);
         }
 
-        taskHandler.apply(self, args);
-      };
-    },
-
-    _handleTask: function (task, args) {
-      if (typeof args != 'undefined' && !_.isArray(args)) {
-        args = [args];
+        !waiting && this._nextTask();
       }
-      args = (_.isArray(args)) ? args : [];
-
-      this._tasksInProgress--;
-      this._finishedLength++;
-
-      args.unshift('task:end');
-      this.emit.apply(null, args);
-
-      if (!this._tasksInProgress && !this.length) {
-        this.emit('empty');
-      }
-
-      this._nextTask();
     },
 
     _shutdown: function () {
@@ -270,7 +318,7 @@
       this._stopped_at = 0;
 
       this.emit('start');
-      setImmediate(this._nextTask());
+      this._nextTask();
 
       return this;
     },
@@ -305,7 +353,7 @@
       this._updateStats();
 
       this.emit('resume');
-      setImmediate(this._nextTask());
+      this._nextTask();
 
       return this;
     },
@@ -399,7 +447,7 @@
       var result = Array.prototype.push.apply(this._tasks, newTasks);
       this._updateLength();
 
-      !!result && setImmediate(this._nextTask);
+      !!result && this._nextTask();
 
       return result;
     },
@@ -415,7 +463,7 @@
       var result = Array.prototype.unshift.apply(this._tasks, newTasks);
       this._updateLength();
 
-      !!result && setImmediate(this._nextTask);
+      !!result && this._nextTask();
 
       return result;
     },
@@ -486,7 +534,7 @@
       var result = Array.prototype.splice.apply(this._tasks, args);
       this._updateLength();
 
-      !!newTasks.length && setImmediate(this._nextTask);
+      !!newTasks.length && this._nextTask();
 
       return result;
     }
@@ -494,7 +542,6 @@
   });
 
 
-  var root = this;
   if (typeof window == 'object' && this === window) {
     root = window;
   } else if (typeof global == 'object' && this === global) {
