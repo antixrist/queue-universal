@@ -4,6 +4,7 @@
   var _EventEmitter = require('events').EventEmitter;
   var _utils = require('util');
   var _ = require('./helpers');
+  var Promise = require('bluebird');
 
   /**
    * If "interval" is a {Function} then they must be return a {Number}.
@@ -131,27 +132,31 @@
         self._lastTaskRunnedTime = currentTime;
         self._tasksInProgress.push(task);
 
-        var callback = self._getTaskUserCallback(task);
-
         self.emit('task:start', task);
 
-        var syncResult = task(callback);
+        Promise.using(task, function (task) {
+          return _.runWithPromise(task).then(function (task) {
+            return Promise.resolve([task]);
+          }).catch(function (e) {
+            self.emit('task:error', e, task);
+          })
+        }).spread(function (task) {
 
-        if (typeof syncResult != 'undefined') {
-          self._handleTask(syncResult, task);
-        }
+        });
+
+
+        _.runWithPromise(task, [], self).then(function (result) {
+          var currentTime = _.getTime();
+          self._lastTaskFinishedTime = currentTime;
+          self._tasksFinishedCount++;
+
+
+        })
+        .catch(function (e) {
+          self.emit('task:error', e);
+        });
+
       });
-    },
-
-    _getTaskUserCallback: function (task) {
-      var self = this;
-
-      return (function (task) {
-        return function () {
-          var args = _.toArray(arguments);
-          self._handleTask.apply(self, args.concat(task));
-        }
-      })(task);
     },
 
     _handleTask: function () {
@@ -177,19 +182,22 @@
 
       if (!this._tasksInProgress.length && !this.length) {
         this.emit('empty');
-      } else {
+      } else if (this.length) {
 
-        var waiting = false;
+        var delay = false;
+        var timeout = 0, _timeout = 0;
         if ((currentTime - this._lastTaskRunnedTime) < this._getIntervalByStart()) {
-          waiting = true;
-          setTimeout(this._nextTask.bind(this), this._getIntervalByStart() + (currentTime - this._lastTaskRunnedTime) + 15);
+          delay = true;
+          _timeout = this._getIntervalByStart() + (currentTime - this._lastTaskRunnedTime) + 15;
+          timeout = (_timeout > timeout) ? _timeout : timeout;
         }
         if ((currentTime - this._lastTaskFinishedTime) < this._getIntervalByFinished()) {
-          waiting = true;
-          setTimeout(this._nextTask.bind(this), this._getIntervalByFinished() + (currentTime - this._lastTaskFinishedTime) + 15);
+          delay = true;
+          _timeout = this._getIntervalByFinished() + (currentTime - this._lastTaskFinishedTime) + 15;
+          timeout = (_timeout > timeout) ? _timeout : timeout;
         }
 
-        !waiting && this._nextTask();
+        !delay && setTimeout(this._nextTask.bind(this), timeout);
       }
     },
 
@@ -361,7 +369,7 @@
     /**
      * @returns {ThrottledConcurrentQueue}
      */
-    stop: function () {
+    shutdown: function () {
       if (this.isStopped()) { return this; }
 
       this._state.paused = false;
