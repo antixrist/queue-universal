@@ -1,4 +1,4 @@
-# node-throttled-concurrent-queue
+# universal-queue
 Throttled concurrency queue for node.js
 
 # Installation
