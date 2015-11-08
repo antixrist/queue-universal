@@ -4,10 +4,13 @@ Throttled concurrency queue for node.js
 # Installation
 Using npm:
 ```
-$ npm i node-throttled-concurrent-queue --save
+$ npm i universal-queue --save
 ```
 
 # Usage
 ```js
-var queue = require('node-throttled-concurrent-queue');
+var queue = require('universal-queue');
 ```
+
+## ToDo
+* test for browser usage
