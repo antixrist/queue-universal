@@ -4,314 +4,235 @@
   var _EventEmitter = require('events').EventEmitter;
   var _utils = require('util');
   var _ = require('./helpers');
-  var Promise = require('bluebird');
 
   /**
    * If "interval" is a {Function} then they must be return a {Number}.
    * @type {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}}
    * @private
    */
-  var _defaults = {
+  var defaults = {
     concurrency: 0,
     intervalByStart: 0,
     intervalByFinished: 0,
   };
 
   /**
-   * @param {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}} _options
-   * @returns {ThrottledConcurrentQueue}
+   * @param {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}} options
+   * @returns {UniversalQueue}
    * @extends _EventEmitter
    * @constructor
    */
-  var ThrottledConcurrentQueue = function (_options) {
-    if (!(this instanceof ThrottledConcurrentQueue)) {
-      return new ThrottledConcurrentQueue(_options);
+  var UniversalQueue = function ThrottledConcurrentQueue$ (options) {
+    if (!(this instanceof UniversalQueue)) {
+      return new UniversalQueue(options);
     }
 
     _EventEmitter.call(this);
 
-    this.setOptions(_options);
+    this._defaults = defaults;
+    this.options = {};
+
     this._setDefaults();
+    this.setOptions(defaults);
+    this.setOptions(options || {});
 
     return this;
   };
-  _utils.inherits(ThrottledConcurrentQueue, _EventEmitter);
+  _utils.inherits(UniversalQueue, _EventEmitter);
 
-  //ThrottledConcurrentQueue.namespace = 'ThrottledConcurrentQueue';
+  _extend(UniversalQueue.prototype, {
 
-  _extend(ThrottledConcurrentQueue.prototype, {
-
-    _setDefaults: function () {
+    _setDefaults: function _setDefaults$ () {
       this._state = {
         paused: false,
         stopped: true
       };
 
-      this._started_at = 0;
-      this._paused_at = 0;
-      this._resumed_at = 0;
-      this._stopped_at = 0;
+      this.lastTaskRunnedTime = 0;
+      this.lastTaskFinishedTime = 0;
 
-      this._stopCount = 0;
-      this._pauseCount = 0;
-
-      this._lastTaskRunnedTime = 0;
-      this._lastTaskFinishedTime = 0;
-
-      this._stats = [];
-      this._statsDefault = {
-        started_at: 0,
-        stopped_at: 0,
-        payloadTime: 0,
-        idleTime: 0,
-        pausedTime: 0,
-        stoppedTime: 0,
-        allTime: 0,
-
-        pauseCount: 0,
-        stopCount: 0,
-
-        tasksCount: 0,
-        tasksFinishedCount: 0
-      };
-
-      this._tasks = [];
-      this._tasksInProgress = [];
-      this._tasksFinishedCount = 0;
+      this.tasks = [];
+      this.tasksInProgress = [];
+      this.tasksFinished = [];
+      this.tasksIndex = 0;
       this._updateLength();
     },
 
-    _updateLength: function () {
-      this.length = this._tasks.length;
+    _refreshDefaults: function _setDefaults$ () {
+      this._state = {
+        paused: false,
+        stopped: true
+      };
+
+      this.lastTaskRunnedTime = 0;
+      this.lastTaskFinishedTime = 0;
+
+      this.tasksIndex = 0;
+      this.tasksInProgress = [];
+      this.tasksFinished = [];
+      this._updateLength();
     },
 
-    _getInterval: function (interval) {
-      if (!interval) { return 0; }
-
-      if (_utils.isFunction(interval)) {
-        interval = interval();
-      }
-      interval = (_utils.isNumber(interval)) ? interval : 0;
-
-      return interval;
+    _updateLength: function _updateLength$ () {
+      this.length = this.tasks.length;
     },
 
-    _getIntervalByStart: function () {
-      return this._getInterval(this._options.intervalByStart);
+    nextTaskAllowed: function nextTaskAllowed$ () {
+      var currentTime = _.getTime(),
+          intervalByStart = this._getInterval(this.options.options),
+          intervalByFinished = this._getInterval(this.options.intervalByFinished);
+
+      if (!this.tasks.length ||
+          this.isPaused() || this.isStopped() ||
+          // check by concurrency
+          (this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency) ||
+          // check by intervalByStart
+          (currentTime - this.lastTaskRunnedTime) < intervalByStart ||
+          // check by intervalByFinished
+          (currentTime - this.lastTaskFinishedTime) < intervalByFinished
+      ) { return false; }
+
+      return true;
     },
 
-    _getIntervalByFinished: function () {
-      return this._getInterval(this._options.intervalByFinished);
-    },
+    nextTask: function nextTask$ () {
+      if (!this.nextTaskAllowed()) { return; }
 
-    _nextTask: function () {
       var self = this;
-      var currentTime = _.getTime();
+      var delay = this._getDelayForNextTask();
 
-      //console.log('_nextTask', currentTime, self._lastTaskRunnedTime, currentTime - self._lastTaskRunnedTime, self._getIntervalByStart());
+      if (delay) {
 
-      if (self.isPaused() || self.isStopped() ||
-          !self._tasks.length || (self._options.concurrency && self._tasksInProgress.length >= self._options.concurrency) ||
-          (currentTime - self._lastTaskRunnedTime) < self._getIntervalByStart() ||
-          (currentTime - self._lastTaskFinishedTime) < self._getIntervalByFinished()
-      ) { return; }
+        setTimeout(function () {
+          if (!self.nextTaskAllowed()) { return; }
 
-      setImmediate(function () {
-        var currentTime = _.getTime();
+          self._nextTask();
+        }, delay);
 
-        if (self.isPaused() || self.isStopped() ||
-            !self._tasks.length || (self._options.concurrency && self._tasksInProgress.length >= self._options.concurrency) ||
-            (currentTime - self._lastTaskRunnedTime) < self._getIntervalByStart() ||
-            (currentTime - self._lastTaskFinishedTime) < self._getIntervalByFinished()
-        ) { return; }
-
-        var task = self.shift();
-        task.started_at = currentTime;
-        task.finished_at = null;
-
-        self._lastTaskRunnedTime = currentTime;
-        self._tasksInProgress.push(task);
-
-        self.emit('task:start', task);
-
-        Promise.using(task, function (task) {
-          return _.runWithPromise(task).then(function (task) {
-            return Promise.resolve([task]);
-          }).catch(function (e) {
-            self.emit('task:error', e, task);
-          })
-        }).spread(function (task) {
-
-        });
-
-
-        _.runWithPromise(task, [], self).then(function (result) {
-          var currentTime = _.getTime();
-          self._lastTaskFinishedTime = currentTime;
-          self._tasksFinishedCount++;
-
-
-        })
-        .catch(function (e) {
-          self.emit('task:error', e);
-        });
-
-      });
-    },
-
-    _handleTask: function () {
-      var args = _.toArray(arguments);
-      var task = args.slice(args.length - 1);
-
-      if (task.finished_at) { return; }
-
-      var currentTime = _.getTime();
-      task.finished_at = currentTime;
-      this._lastTaskFinishedTime = currentTime;
-      this._tasksFinishedCount++;
-
-      // TODO: не ищется (таск из аргументов и в этом массиве считаются разными, сцук). внедрить uuid
-      var index = this._tasksInProgress.indexOf(task);
-      if (index >= 0) {
-        this._tasksInProgress.splice(index, 1);
-      }
-
-      console.log('_handleTask', index, this._tasksInProgress);
-
-      this.emit.apply(this, ['task:end'].concat(args));
-
-      if (!this._tasksInProgress.length && !this.length) {
-        this.emit('empty');
-      } else if (this.length) {
-
-        var delay = false;
-        var timeout = 0, _timeout = 0;
-        if ((currentTime - this._lastTaskRunnedTime) < this._getIntervalByStart()) {
-          delay = true;
-          _timeout = this._getIntervalByStart() + (currentTime - this._lastTaskRunnedTime) + 15;
-          timeout = (_timeout > timeout) ? _timeout : timeout;
-        }
-        if ((currentTime - this._lastTaskFinishedTime) < this._getIntervalByFinished()) {
-          delay = true;
-          _timeout = this._getIntervalByFinished() + (currentTime - this._lastTaskFinishedTime) + 15;
-          timeout = (_timeout > timeout) ? _timeout : timeout;
-        }
-
-        !delay && setTimeout(this._nextTask.bind(this), timeout);
-      }
-    },
-
-    _shutdown: function () {
-
-    },
-
-    _getDefaultStats: function () {
-      return _extend({}, this._statsDefault)
-    },
-
-    _getCurrentStats: function () {
-      this._stats[this._stopCount] = this._stats[this._stopCount] || this._getDefaultStats();
-      return this._stats[this._stopCount];
-    },
-
-    _updateStats: function () {
-      var changed = {};
-      var stats = this._getCurrentStats();
-      this._previousStates = this._previousStates || false;
-
-      if (!this._previousStates) {
-        // started
-        stats.started_at = this._started_at;
       } else {
 
-        for (var state in this._state) if (this._state.hasOwnProperty(state)) {
-          if (typeof this._previousStates[state] == 'undefined') {
+        //process.nextTick(function () {
+        setImmediate(function () {
+          if (!self.nextTaskAllowed()) { return; }
 
-          } else {
-            changed[state] = (this._previousStates[state] != this._state[state]);
-          }
-        }
-
-        if (changed.paused) {
-          if (this.isPaused()) {
-            // paused
-            stats.paused_at = this._paused_at;
-          } else {
-            // resumed
-            stats.resumed_at = this._resumed_at;
-          }
-        }
-
-        if (changed.stopped) {
-          if (this.isStopped()) {
-            // stopped
-            stats.stopped_at = this._stopped_at;
-
-            if (changed.paused) {
-              // it was paused without resume
-
-            } else {
-
-            }
-          } else {
-            // started again
-            stats.started_at = this._started_at;
-
-          }
-        }
+          self._nextTask();
+        });
 
       }
+    },
 
-      //this._started_at = 0;
-      //this._paused_at = 0;
-      //this._resumed_at = 0;
-      //this._stopped_at = 0;
-      //
-      //this._stopCount = 0;
-      //this._pauseCount = 0;
-      //
-      //this._stats = [];
-      //this._statsDefault = {
-      //  started_at: 0,
-      //  stopped_at: 0,
+    _getDelayForNextTask: function _getDelayForNextTask$ () {
+      var delay = 0;
+      var currentTime = _.getTime();
 
-      //  pausedTime: 0,
-      //  stoppedTime: 0,
-      //  payloadTime: 0,
-      //  idleTime: 0,
-      //  allTime: 0,
-      //
-      //  pauseCount: 0,
-      //  stopCount: 0,
-      //
-      //  tasksCount: 0,
-      //  tasksFinishedCount: 0
-      //};
+      if (!this.tasks.length) { return delay; }
+
+      var delayByStart = 0, delayByFinished = 0, reserveTime = 15,
+          intervalByStart = this._getInterval(this.options.options),
+          intervalByFinished = this._getInterval(this.options.intervalByFinished);
+
+      if ((currentTime - this.lastTaskRunnedTime) < intervalByStart) {
+        delayByStart = intervalByStart + (currentTime - this.lastTaskRunnedTime) + reserveTime;
+      }
+      if ((currentTime - this.lastTaskFinishedTime) < intervalByFinished) {
+        delayByFinished = intervalByFinished + (currentTime - this.lastTaskFinishedTime) + reserveTime;
+      }
+
+      delay = (delayByStart > delayByFinished) ? delayByStart : delayByFinished;
+
+      return delay;
+    },
 
 
+    /**
+     * @private
+     */
+    _nextTask: function _nextTask$ () {
+      var currentTime = _.getTime();
+      var task = this.shift();
 
+      var taskInfo = {};
+      taskInfo.index = null;
+      taskInfo.started_at = currentTime;
+      taskInfo.finished_at = null;
 
-      this._previousStates = _extend({}, this._state);
+      this.lastTaskRunnedTime = currentTime;
+      this.tasksInProgress.push(task);
+
+      this.emit('task:start', task);
+
+      var self = this;
+      _.runSyncAsync(task, (function (task, taskInfo) { return function () {
+        var args = _.toArray(arguments);
+        var currentTime = _.getTime();
+
+        taskInfo.index = self.tasksIndex++;
+        taskInfo.finished_at = currentTime;
+        self.lastTaskFinishedTime = currentTime;
+
+        // todo: протестировать работу indexOf
+        self.tasks.splice(self.tasks.indexOf(task), 1);
+        self.tasksInProgress.splice(self.tasksInProgress.indexOf(task), 1);
+        self.tasksFinished.push(task);
+
+        self.emit.apply(self, ['task:end'].concat(args).concat([taskInfo, task]));
+
+        if (!self.tasksInProgress.length) {
+          if (self.isPaused()) {
+            self.emit('paused');
+          }
+
+          if (!self.tasks.length) {
+            self.emit('empty');
+
+            if (self.isStopped()) {
+              self.emit('stopped');
+            }
+          }
+        }
+
+        self.nextTask();
+      }; })(task, taskInfo));
     },
 
     // Public API
     /**
-     * @param {{}} _options
+     * @param {{}} options
      */
-    setOptions: function (_options) {
-      this._options = (_utils.isObject(_options)) ? _extend(true, {}, _defaults, _options) : _defaults;
+    setOptions: function setOptions$ (options) {
+      options = _utils.isObject(options) ? options : {};
+      this.options = _extend(true, this.options, options);
 
-      if (!_utils.isNumber(this._options.concurrency) || isNaN(this._options.concurrency) || !isFinite(this._options.concurrency) || this._options.concurrency < 1) {
-        this._options.concurrency = 1;
+      this.options.concurrency = parseInt(this.options.concurrency, 10);
+      if (!_utils.isNumber(this.options.concurrency) || isNaN(this.options.concurrency) || this.options.concurrency < 0) {
+        this.options.concurrency = 1;
       }
+
+      return this.options;
+    },
+
+    _getInterval: function _getInterval$ (interval) {
+      if (!interval) { return 0; }
+
+      if (_utils.isFunction(interval)) {
+        interval = interval.apply(this);
+      }
+      interval = _utils.isNumber(interval) ? parseInt(interval, 10) : 0;
+      if (isNaN(interval) || interval < 0) {
+        interval = 0;
+      }
+
+      return interval;
     },
 
     /**
      * @param {...Function|Array} [tasks]
-     * @returns {ThrottledConcurrentQueue}
+     * @returns {UniversalQueue}
      */
-    start: function (tasks) {
+    start: function start$ (tasks) {
       var args = _.toArray(arguments);
+
+      this._refreshDefaults();
       this.push.apply(this, args);
 
       if (this.isPaused()) { return this.resume(); }
@@ -320,67 +241,52 @@
       this._state.paused = false;
       this._state.stopped = false;
 
-      this._started_at = _.getTime();
-      this._paused_at = 0;
-      this._resumed_at = 0;
-      this._stopped_at = 0;
-
       this.emit('start');
-      this._nextTask();
+      this.nextTask();
 
       return this;
     },
 
     /**
-     * @returns {ThrottledConcurrentQueue}
+     * @returns {UniversalQueue}
      */
-    pause: function () {
+    pause: function pause$ () {
       if (this.isPaused() || this.isStopped()) { return this; }
 
       this._state.paused = true;
       this._state.stopped = false;
-      this._paused_at = _.getTime();
-      this._resumed_at = 0;
 
       this.emit('pause');
-      this._pauseCount++;
 
       return this;
     },
 
     /**
-     * @returns {ThrottledConcurrentQueue}
+     * @returns {UniversalQueue}
      */
-    resume: function () {
+    resume: function resume$ () {
       if (this.isStopped()) { return this.start(); }
       if (!this.isPaused()) { return this; }
 
       this._state.paused = false;
       this._state.stopped = false;
-      this._resumed_at = _.getTime();
-      this._updateStats();
 
       this.emit('resume');
-      this._nextTask();
+      this.nextTask();
 
       return this;
     },
 
     /**
-     * @returns {ThrottledConcurrentQueue}
+     * @returns {UniversalQueue}
      */
-    shutdown: function () {
+    stop: function shutdown$ () {
       if (this.isStopped()) { return this; }
 
       this._state.paused = false;
       this._state.stopped = true;
-      this._stopped_at = _.getTime();
-      this._updateStats();
-
-      this._shutdown();
 
       this.emit('stop');
-      this._stopCount++;
 
       return this;
     },
@@ -388,60 +294,36 @@
     /**
      * @returns {boolean}
      */
-    isPaused: function () {
+    isPaused: function isPaused$ () {
       return this._state.paused;
     },
 
     /**
      * @returns {boolean}
      */
-    isStopped: function () {
+    isStopped: function isStopped$ () {
       return this._state.stopped;
     },
 
     /**
-     * @returns {{}}
+     * @returns {Array}
      */
-    getStats: function () {
-      var length = this._stats.length;
-      var stats = this._getDefaultStats();
-
-      this._stats.forEach(function (stat, index) {
-        if (index === 0) {
-          stats._started_at = stat._started_at;
-        }
-        if (index === (length - 1)) {
-          stats._stopped_at = stat._stopped_at;
-        }
-
-        stats.pausedTime += stat.pausedTime;
-        stats.stoppedTime += stat.stoppedTime;
-        stats.payloadTime += stat.payloadTime;
-        stats.idleTime += stat.idleTime;
-        stats.allTime += stat.allTime;
-
-        stats.tasksCount += stat.tasksCount;
-        stats.tasksFinishedCount += stat.tasksFinishedCount;
-      });
-
-      stats.pauseCount = this._pauseCount;
-      stats.stopCount = this._stopCount;
-
-      return stats;
+    getTasks: function getTasks$ () {
+      return this.tasks;
     },
 
     /**
      * @returns {Array}
      */
-    getTasks: function () {
-      return [].concat(this._tasks);
+    getTasksInProgress: function getTasksInProgress$ () {
+      return this.tasksInProgress;
     },
 
     /**
      * @returns {Array}
      */
-    getTasksInProgress: function () {
-      return [].concat(this._tasksInProgress);
+    getTasksFinished: function getTasksInProgress$ () {
+      return this.tasksFinished;
     },
 
     /**
@@ -450,14 +332,14 @@
      * @param {...Function} tasks
      * @returns {Number}
      */
-    push: function (tasks) {
+    push: function push$ (tasks) {
       var newTasks = _.methods(_.toArray(arguments));
-      var result = Array.prototype.push.apply(this._tasks, newTasks);
+      var length = Array.prototype.push.apply(this.tasks, newTasks);
       this._updateLength();
 
-      !!result && this._nextTask();
+      this.nextTask();
 
-      return result;
+      return length;
     },
 
     /**
@@ -466,12 +348,12 @@
      * @param {...Function} [tasks]
      * @returns {Number}
      */
-    unshift: function (tasks) {
+    unshift: function unshift$ (tasks) {
       var newTasks = _.methods(_.toArray(arguments));
-      var result = Array.prototype.unshift.apply(this._tasks, newTasks);
+      var result = Array.prototype.unshift.apply(this.tasks, newTasks);
       this._updateLength();
 
-      !!result && this._nextTask();
+      this.nextTask();
 
       return result;
     },
@@ -481,8 +363,8 @@
      *
      * @returns {Function|undefined}
      */
-    shift: function () {
-      var result = this._tasks.shift();
+    shift: function shift$ () {
+      var result = this.tasks.shift();
       this._updateLength();
 
       return result;
@@ -493,8 +375,8 @@
      *
      * @returns {Function|undefined}
      */
-    pop: function () {
-      var result = this._tasks.pop();
+    pop: function pop$ () {
+      var result = this.tasks.pop();
       this._updateLength();
 
       return result;
@@ -505,8 +387,8 @@
      *
      * @returns {Array}
      */
-    reverse: function () {
-      this._tasks.reverse();
+    reverse: function reverse$ () {
+      this.tasks.reverse();
 
       return this.getTasks();
     },
@@ -518,8 +400,8 @@
      * @param {Number} [end]
      * @return {Array}
      */
-    slice: function (start, end) {
-      return [].concat(Array.prototype.slice.apply(this._tasks, _.toArray(arguments)));
+    slice: function slice$ (start, end) {
+      return [].concat(Array.prototype.slice.apply(this.tasks, _.toArray(arguments)));
     },
 
     /**
@@ -530,7 +412,7 @@
      * @param {...Function} [tasks]
      * @return {Array}
      */
-    splice: function (start, deleteCount, tasks) {
+    splice: function splice$ (start, deleteCount, tasks) {
       var newTasks = [];
       var args = _.toArray(arguments);
 
@@ -539,12 +421,12 @@
         args = [start, deleteCount].concat(newTasks);
       }
 
-      var result = Array.prototype.splice.apply(this._tasks, args);
+      var deletedTasks = Array.prototype.splice.apply(this.tasks, args);
       this._updateLength();
 
-      !!newTasks.length && this._nextTask();
+      this.nextTask();
 
-      return result;
+      return deletedTasks;
     }
 
   });
@@ -558,17 +440,17 @@
 
   // Node.js
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = ThrottledConcurrentQueue;
+    module.exports = UniversalQueue;
   } else
   // AMD / RequireJS
   if (typeof define !== 'undefined' && define.amd) {
     define([], function () {
-      return ThrottledConcurrentQueue;
+      return UniversalQueue;
     });
   }
   // included directly via <script> tag
   else {
-    root.ThrottledConcurrentQueue = ThrottledConcurrentQueue;
+    root.ThrottledConcurrentQueue = UniversalQueue;
   }
 
 })();

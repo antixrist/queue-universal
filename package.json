@@ -20,7 +20,8 @@
     "async",
     "synchronous",
     "asynchronous",
-    "throttle"
+    "throttle",
+    "debounce"
   ],
   "author": {
     "name": "antixrist",
@@ -33,7 +34,6 @@
   },
   "homepage": "https://github.com/antixrist/node-throttled-concurrent-queue#readme",
   "dependencies": {
-    "bluebird": "^2.10.2",
     "cheerio": "^0.19.0",
     "extend": "^3.0.0"
   }
