@@ -3,20 +3,27 @@ var _ = {};
 /**
  * Logger
  */
-_.log = function () {
-  var args = Array.prototype.slice.call(arguments, 0);
-  var consoleMethod = null;
-  if (console) {
-    if (typeof console.info != 'undefined') {
-      consoleMethod = 'info';
-    } else if (typeof console.log != 'undefined') {
-      consoleMethod = 'log';
-    }
-  }
+_.log = function (prefix) {
+  prefix = prefix.toString() || null;
 
-  if (consoleMethod) {
-    console[consoleMethod].apply(console, ['[ThrottledConcurrentQueue]'].concat(args));
-  }
+  return function () {
+    var args = Array.prototype.slice.call(arguments, 0);
+    var consoleMethod = null;
+    if (console) {
+      if (typeof console.info != 'undefined') {
+        consoleMethod = 'info';
+      } else if (typeof console.log != 'undefined') {
+        consoleMethod = 'log';
+      }
+    }
+
+    if (consoleMethod) {
+
+      if (prefix) { args.unshift(['[', prefix, ']'].join()); }
+
+      console[consoleMethod].apply(console, args);
+    }
+  };
 };
 
 /**

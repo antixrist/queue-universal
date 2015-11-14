@@ -1,8 +1,8 @@
 (function (undefined) {
   var root = this;
-  var _extend = require('extend');
-  var _EventEmitter = require('events').EventEmitter;
-  var _utils = require('util');
+  var Extend = require('extend');
+  var EventEmitter = require('events').EventEmitter;
+  var Utils = require('util');
   var _ = require('./helpers');
 
   /**
@@ -19,7 +19,7 @@
   /**
    * @param {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}} options
    * @returns {UniversalQueue}
-   * @extends _EventEmitter
+   * @extends EventEmitter
    * @constructor
    */
   var UniversalQueue = function ThrottledConcurrentQueue$ (options) {
@@ -27,7 +27,7 @@
       return new UniversalQueue(options);
     }
 
-    _EventEmitter.call(this);
+    EventEmitter.call(this);
 
     this._defaults = defaults;
     this.options = {};
@@ -38,9 +38,9 @@
 
     return this;
   };
-  _utils.inherits(UniversalQueue, _EventEmitter);
+  Utils.inherits(UniversalQueue, EventEmitter);
 
-  _extend(UniversalQueue.prototype, {
+  Extend(UniversalQueue.prototype, {
 
     _setDefaults: function _setDefaults$ () {
       this._state = {
@@ -200,11 +200,11 @@
      * @param {{}} options
      */
     setOptions: function setOptions$ (options) {
-      options = _utils.isObject(options) ? options : {};
-      this.options = _extend(true, this.options, options);
+      options = Utils.isObject(options) ? options : {};
+      this.options = Extend(true, this.options, options);
 
       this.options.concurrency = parseInt(this.options.concurrency, 10);
-      if (!_utils.isNumber(this.options.concurrency) || isNaN(this.options.concurrency) || this.options.concurrency < 0) {
+      if (!Utils.isNumber(this.options.concurrency) || isNaN(this.options.concurrency) || this.options.concurrency < 0) {
         this.options.concurrency = 1;
       }
 
@@ -214,10 +214,10 @@
     _getInterval: function _getInterval$ (interval) {
       if (!interval) { return 0; }
 
-      if (_utils.isFunction(interval)) {
+      if (Utils.isFunction(interval)) {
         interval = interval.apply(this);
       }
-      interval = _utils.isNumber(interval) ? parseInt(interval, 10) : 0;
+      interval = Utils.isNumber(interval) ? parseInt(interval, 10) : 0;
       if (isNaN(interval) || interval < 0) {
         interval = 0;
       }
