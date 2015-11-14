@@ -401,7 +401,7 @@
      * @return {Array}
      */
     slice: function slice$ (start, end) {
-      return [].concat(Array.prototype.slice.apply(this.tasks, _.toArray(arguments)));
+      return Array.prototype.slice.apply(this.tasks, _.toArray(arguments));
     },
 
     /**
@@ -413,12 +413,12 @@
      * @return {Array}
      */
     splice: function splice$ (start, deleteCount, tasks) {
-      var newTasks = [];
+      var _tasks = [];
       var args = _.toArray(arguments);
 
       if (args.length > 2) {
-        newTasks = _.methods(args.slice(2));
-        args = [start, deleteCount].concat(newTasks);
+        _tasks = _.methods(args.slice(2));
+        args = Array.prototype.push.apply(args, _tasks);
       }
 
       var deletedTasks = Array.prototype.splice.apply(this.tasks, args);
@@ -427,8 +427,29 @@
       this.nextTask();
 
       return deletedTasks;
-    }
+    },
 
+    /**
+     * Proxy for Array.prototype.indexOf
+     *
+     * @param {*} searchElement
+     * @param {number} [fromIndex]
+     * @return {number}
+     */
+    indexOf: function indexOf$ (searchElement, fromIndex) {
+      return Array.prototype.indexOf.apply(this.tasks, arguments);
+    },
+
+    /**
+     * Proxy for Array.prototype.indexOf
+     *
+     * @param {*} searchElement
+     * @param {number} [fromIndex]
+     * @return {number}
+     */
+    lastIndexOf: function lastIndexOf$ (searchElement, fromIndex) {
+      return Array.prototype.lastIndexOf.apply(this.tasks, arguments);
+    },
   });
 
 
