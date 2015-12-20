@@ -11,18 +11,18 @@
    * @private
    */
   var defaults = {
-    concurrency: 0,
+    concurrency: 1,
     intervalByStart: 0,
     intervalByFinished: 0,
   };
 
   /**
-   * @param {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}} options
+   * @param {{concurrency: number, intervalByStart: number|Function, intervalByFinished: number|Function}} [options]
    * @returns {UniversalQueue}
    * @extends EventEmitter
    * @constructor
    */
-  var UniversalQueue = function ThrottledConcurrentQueue$ (options) {
+  var UniversalQueue = function UniversalQueue (options) {
     if (!(this instanceof UniversalQueue)) {
       return new UniversalQueue(options);
     }
@@ -42,7 +42,7 @@
 
   Extend(UniversalQueue.prototype, {
 
-    _setDefaults: function _setDefaults$ () {
+    _setDefaults: function _setDefaults () {
       this._state = {
         paused: false,
         stopped: true
@@ -58,7 +58,7 @@
       this._updateLength();
     },
 
-    _refreshDefaults: function _setDefaults$ () {
+    _refreshDefaults: function _refreshDefaults () {
       this._state = {
         paused: false,
         stopped: true
@@ -73,13 +73,13 @@
       this._updateLength();
     },
 
-    _updateLength: function _updateLength$ () {
+    _updateLength: function _updateLength () {
       this.length = this.tasks.length;
     },
 
-    nextTaskAllowed: function nextTaskAllowed$ () {
+    nextTaskAllowed: function nextTaskAllowed () {
       var currentTime = _.getTime(),
-          intervalByStart = this._getInterval(this.options.options),
+          intervalByStart = this._getInterval(this.options.intervalByStart),
           intervalByFinished = this._getInterval(this.options.intervalByFinished);
 
       if (!this.tasks.length ||
@@ -95,7 +95,7 @@
       return true;
     },
 
-    nextTask: function nextTask$ () {
+    nextTask: function nextTask () {
       if (!this.nextTaskAllowed()) { return; }
 
       var self = this;
@@ -121,7 +121,7 @@
       }
     },
 
-    _getDelayForNextTask: function _getDelayForNextTask$ () {
+    _getDelayForNextTask: function _getDelayForNextTask () {
       var delay = 0;
       var currentTime = _.getTime();
 
@@ -147,7 +147,7 @@
     /**
      * @private
      */
-    _nextTask: function _nextTask$ () {
+    _nextTask: function _nextTask () {
       var currentTime = _.getTime();
       var task = this.shift();
 
@@ -199,7 +199,7 @@
     /**
      * @param {{}} options
      */
-    setOptions: function setOptions$ (options) {
+    setOptions: function setOptions (options) {
       options = Utils.isObject(options) ? options : {};
       this.options = Extend(true, this.options, options);
 
@@ -211,7 +211,7 @@
       return this.options;
     },
 
-    _getInterval: function _getInterval$ (interval) {
+    _getInterval: function _getInterval (interval) {
       if (!interval) { return 0; }
 
       if (Utils.isFunction(interval)) {
@@ -229,7 +229,7 @@
      * @param {...Function|Array} [tasks]
      * @returns {UniversalQueue}
      */
-    start: function start$ (tasks) {
+    start: function start (tasks) {
       var args = _.toArray(arguments);
 
       this._refreshDefaults();
@@ -250,7 +250,7 @@
     /**
      * @returns {UniversalQueue}
      */
-    pause: function pause$ () {
+    pause: function pause () {
       if (this.isPaused() || this.isStopped()) { return this; }
 
       this._state.paused = true;
@@ -264,7 +264,7 @@
     /**
      * @returns {UniversalQueue}
      */
-    resume: function resume$ () {
+    resume: function resume () {
       if (this.isStopped()) { return this.start(); }
       if (!this.isPaused()) { return this; }
 
@@ -280,7 +280,7 @@
     /**
      * @returns {UniversalQueue}
      */
-    stop: function shutdown$ () {
+    stop: function shutdown () {
       if (this.isStopped()) { return this; }
 
       this._state.paused = false;
@@ -294,35 +294,35 @@
     /**
      * @returns {boolean}
      */
-    isPaused: function isPaused$ () {
+    isPaused: function isPaused () {
       return this._state.paused;
     },
 
     /**
      * @returns {boolean}
      */
-    isStopped: function isStopped$ () {
+    isStopped: function isStopped () {
       return this._state.stopped;
     },
 
     /**
      * @returns {Array}
      */
-    getTasks: function getTasks$ () {
+    getTasks: function getTasks () {
       return this.tasks;
     },
 
     /**
      * @returns {Array}
      */
-    getTasksInProgress: function getTasksInProgress$ () {
+    getTasksInProgress: function getTasksInProgress () {
       return this.tasksInProgress;
     },
 
     /**
      * @returns {Array}
      */
-    getTasksFinished: function getTasksInProgress$ () {
+    getTasksFinished: function getTasksFinished () {
       return this.tasksFinished;
     },
 
@@ -332,7 +332,7 @@
      * @param {...Function} tasks
      * @returns {Number}
      */
-    push: function push$ (tasks) {
+    push: function push (tasks) {
       var newTasks = _.methods(_.toArray(arguments));
       var length = Array.prototype.push.apply(this.tasks, newTasks);
       this._updateLength();
@@ -348,7 +348,7 @@
      * @param {...Function} [tasks]
      * @returns {Number}
      */
-    unshift: function unshift$ (tasks) {
+    unshift: function unshift (tasks) {
       var newTasks = _.methods(_.toArray(arguments));
       var result = Array.prototype.unshift.apply(this.tasks, newTasks);
       this._updateLength();
@@ -363,7 +363,7 @@
      *
      * @returns {Function|undefined}
      */
-    shift: function shift$ () {
+    shift: function shift () {
       var result = this.tasks.shift();
       this._updateLength();
 
@@ -375,7 +375,7 @@
      *
      * @returns {Function|undefined}
      */
-    pop: function pop$ () {
+    pop: function pop () {
       var result = this.tasks.pop();
       this._updateLength();
 
@@ -387,7 +387,7 @@
      *
      * @returns {Array}
      */
-    reverse: function reverse$ () {
+    reverse: function reverse () {
       this.tasks.reverse();
 
       return this.getTasks();
@@ -400,7 +400,7 @@
      * @param {Number} [end]
      * @return {Array}
      */
-    slice: function slice$ (start, end) {
+    slice: function slice (start, end) {
       return Array.prototype.slice.apply(this.tasks, _.toArray(arguments));
     },
 
@@ -412,7 +412,7 @@
      * @param {...Function} [tasks]
      * @return {Array}
      */
-    splice: function splice$ (start, deleteCount, tasks) {
+    splice: function splice (start, deleteCount, tasks) {
       var _tasks = [];
       var args = _.toArray(arguments);
 
@@ -436,7 +436,7 @@
      * @param {number} [fromIndex]
      * @return {number}
      */
-    indexOf: function indexOf$ (searchElement, fromIndex) {
+    indexOf: function indexOf (searchElement, fromIndex) {
       return Array.prototype.indexOf.apply(this.tasks, arguments);
     },
 
@@ -447,7 +447,7 @@
      * @param {number} [fromIndex]
      * @return {number}
      */
-    lastIndexOf: function lastIndexOf$ (searchElement, fromIndex) {
+    lastIndexOf: function lastIndexOf (searchElement, fromIndex) {
       return Array.prototype.lastIndexOf.apply(this.tasks, arguments);
     },
   });
