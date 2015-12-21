@@ -82,21 +82,41 @@
           intervalByStart = this._getInterval(this.options.intervalByStart),
           intervalByFinished = this._getInterval(this.options.intervalByFinished);
 
+      var result = true;
       if (!this.tasks.length ||
-          this.isPaused() || this.isStopped() ||
+        this.isPaused() || this.isStopped() ||
           // check by concurrency
-          (this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency) ||
+        (this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency) ||
           // check by intervalByStart
-          (currentTime - this.lastTaskRunnedTime) < intervalByStart ||
+        (this.lastTaskRunnedTime && (currentTime - this.lastTaskRunnedTime) < intervalByStart) ||
           // check by intervalByFinished
-          (currentTime - this.lastTaskFinishedTime) < intervalByFinished
-      ) { return false; }
+        (this.lastTaskFinishedTime && (currentTime - this.lastTaskFinishedTime) < intervalByFinished)
+      ) { result = false; }
 
-      return true;
+      //console.log([
+      //  '=========',
+      //  'nextTaskAllowed',
+      //  '',
+      //  '!this.tasks.length', !this.tasks.length,
+      //  'this.isPaused()', this.isPaused(),
+      //  'this.isStopped()', this.isStopped(),
+      //  //'this.lastTaskRunnedTime', this.lastTaskRunnedTime,
+      //  //'this.lastTaskFinishedTime', this.lastTaskFinishedTime,
+      //  //'this.tasksInProgress.length', this.tasksInProgress.length,
+      //  '(this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency)', (this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency),
+      //  '(this.lastTaskRunnedTime && (currentTime - this.lastTaskRunnedTime) < intervalByStart)', (this.lastTaskRunnedTime && (currentTime - this.lastTaskRunnedTime) < intervalByStart),
+      //  '(this.lastTaskFinishedTime && (currentTime - this.lastTaskFinishedTime) < intervalByFinished)', (this.lastTaskFinishedTime && (currentTime - this.lastTaskFinishedTime) < intervalByFinished),
+      //  '',
+      //  result,
+      //  '=========',
+      //].join('\n'));
+
+      return result;
     },
 
     nextTask: function nextTask () {
-      if (!this.nextTaskAllowed()) { return; }
+      //console.log('nextTask');
+      if (!this.nextTaskAllowed() && !this.tasks.length) { return; }
 
       var self = this;
       var delay = this._getDelayForNextTask();
@@ -113,7 +133,7 @@
 
         //process.nextTick(function () {
         setImmediate(function () {
-          if (!self.nextTaskAllowed()) { return; }
+          //if (!self.nextTaskAllowed()) { return; }
 
           self._nextTask();
         });
@@ -140,6 +160,16 @@
 
       delay = (delayByStart > delayByFinished) ? delayByStart : delayByFinished;
 
+      //console.log([
+      //  '=============',
+      //  '_getDelayForNextTask',
+      //  'intervalByStart', intervalByStart,
+      //  'intervalByFinished', intervalByFinished,
+      //  '',
+      //  'delay', delay,
+      //  '=============',
+      //].join('\n'));
+      //
       return delay;
     },
 
@@ -162,6 +192,7 @@
       this.emit('task:start', task);
 
       var self = this;
+      //process.nextTick(function () {
       _.runSyncAsync(task, (function (task, taskInfo) { return function () {
         var args = _.toArray(arguments);
         var currentTime = _.getTime();
@@ -171,12 +202,13 @@
         self.lastTaskFinishedTime = currentTime;
 
         // todo: протестировать работу indexOf
-        self.tasks.splice(self.tasks.indexOf(task), 1);
         self.tasksInProgress.splice(self.tasksInProgress.indexOf(task), 1);
         self.tasksFinished.push(task);
 
         self.emit.apply(self, ['task:end'].concat(args).concat([taskInfo, task]));
 
+        //console.log('taskInfo', taskInfo);
+        //console.log('self.tasksInProgress.length', self.tasksInProgress.length);
         if (!self.tasksInProgress.length) {
           if (self.isPaused()) {
             self.emit('paused');
@@ -193,6 +225,7 @@
 
         self.nextTask();
       }; })(task, taskInfo));
+      //});
     },
 
     // Public API
@@ -242,7 +275,10 @@
       this._state.stopped = false;
 
       this.emit('start');
-      this.nextTask();
+
+      for(var i = 0; i < this.options.concurrency; i++) {
+        this.nextTask();
+      }
 
       return this;
     },
@@ -336,6 +372,8 @@
       var newTasks = _.methods(_.toArray(arguments));
       var length = Array.prototype.push.apply(this.tasks, newTasks);
       this._updateLength();
+
+      //console.log('push tasks', length);
 
       this.nextTask();
 
