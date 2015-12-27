@@ -1,8 +1,8 @@
 (function (undefined) {
   var root = this;
-  var Extend = require('extend');
+  var extend = require('extend');
   var EventEmitter = require('events').EventEmitter;
-  var Utils = require('util');
+  var utils = require('util');
   var _ = require('./helpers');
 
   /**
@@ -38,9 +38,9 @@
 
     return this;
   };
-  Utils.inherits(UniversalQueue, EventEmitter);
+  utils.inherits(UniversalQueue, EventEmitter);
 
-  Extend(UniversalQueue.prototype, {
+  extend(UniversalQueue.prototype, {
 
     _setDefaults: function _setDefaults () {
       this._state = {
@@ -83,7 +83,8 @@
           intervalByFinished = this._getInterval(this.options.intervalByFinished);
 
       var result = true;
-      if (!this.tasks.length ||
+      if (
+        !this.tasks.length ||
         this.isPaused() || this.isStopped() ||
           // check by concurrency
         (this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency) ||
@@ -100,9 +101,9 @@
       //  '!this.tasks.length', !this.tasks.length,
       //  'this.isPaused()', this.isPaused(),
       //  'this.isStopped()', this.isStopped(),
-      //  //'this.lastTaskRunnedTime', this.lastTaskRunnedTime,
-      //  //'this.lastTaskFinishedTime', this.lastTaskFinishedTime,
-      //  //'this.tasksInProgress.length', this.tasksInProgress.length,
+      //  'this.lastTaskRunnedTime', this.lastTaskRunnedTime,
+      //  'this.lastTaskFinishedTime', this.lastTaskFinishedTime,
+      //  'this.tasksInProgress.length', this.tasksInProgress.length,
       //  '(this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency)', (this.options.concurrency && this.tasksInProgress.length >= this.options.concurrency),
       //  '(this.lastTaskRunnedTime && (currentTime - this.lastTaskRunnedTime) < intervalByStart)', (this.lastTaskRunnedTime && (currentTime - this.lastTaskRunnedTime) < intervalByStart),
       //  '(this.lastTaskFinishedTime && (currentTime - this.lastTaskFinishedTime) < intervalByFinished)', (this.lastTaskFinishedTime && (currentTime - this.lastTaskFinishedTime) < intervalByFinished),
@@ -112,33 +113,6 @@
       //].join('\n'));
 
       return result;
-    },
-
-    nextTask: function nextTask () {
-      //console.log('nextTask');
-      if (!this.nextTaskAllowed() && !this.tasks.length) { return; }
-
-      var self = this;
-      var delay = this._getDelayForNextTask();
-
-      if (delay) {
-
-        setTimeout(function () {
-          if (!self.nextTaskAllowed()) { return; }
-
-          self._nextTask();
-        }, delay);
-
-      } else {
-
-        //process.nextTick(function () {
-        setImmediate(function () {
-          //if (!self.nextTaskAllowed()) { return; }
-
-          self._nextTask();
-        });
-
-      }
     },
 
     _getDelayForNextTask: function _getDelayForNextTask () {
@@ -173,6 +147,37 @@
       return delay;
     },
 
+    nextTask: function nextTask () {
+      //console.log('nextTask');
+      if (!this.nextTaskAllowed() && !this.tasks.length) { return; }
+
+      var self = this;
+      var delay = this._getDelayForNextTask();
+
+      //console.log([
+      //  'nextTask',
+      //  'delay', delay
+      //].join(' | '));
+
+      if (delay) {
+        // todo вызывается 2 раза
+        self.emit('waiting:start', delay);
+        setTimeout(function () {
+          self.emit('waiting:end', delay);
+          if (!self.nextTaskAllowed()) { return; }
+
+          //console.log('self.nextTask()2');
+          self._nextTask();
+        }, delay);
+      } else {
+        //process.nextTick(function () {
+        setImmediate(function () {
+          //if (!self.nextTaskAllowed()) { return; }
+          //console.log('self.nextTask()1');
+          self._nextTask();
+        });
+      }
+    },
 
     /**
      * @private
@@ -192,23 +197,20 @@
       this.emit('task:start', task);
 
       var self = this;
-      //process.nextTick(function () {
       _.runSyncAsync(task, (function (task, taskInfo) { return function () {
         var args = _.toArray(arguments);
         var currentTime = _.getTime();
 
         taskInfo.index = self.tasksIndex++;
         taskInfo.finished_at = currentTime;
+        taskInfo.time = taskInfo.finished_at - taskInfo.started_at;
         self.lastTaskFinishedTime = currentTime;
 
-        // todo: протестировать работу indexOf
         self.tasksInProgress.splice(self.tasksInProgress.indexOf(task), 1);
         self.tasksFinished.push(task);
 
         self.emit.apply(self, ['task:end'].concat(args).concat([taskInfo, task]));
 
-        //console.log('taskInfo', taskInfo);
-        //console.log('self.tasksInProgress.length', self.tasksInProgress.length);
         if (!self.tasksInProgress.length) {
           if (self.isPaused()) {
             self.emit('paused');
@@ -223,9 +225,9 @@
           }
         }
 
+        //console.log('self.nextTask()');
         self.nextTask();
       }; })(task, taskInfo));
-      //});
     },
 
     // Public API
@@ -233,11 +235,11 @@
      * @param {{}} options
      */
     setOptions: function setOptions (options) {
-      options = Utils.isObject(options) ? options : {};
-      this.options = Extend(true, this.options, options);
+      options = utils.isObject(options) ? options : {};
+      this.options = extend(true, this.options, options);
 
       this.options.concurrency = parseInt(this.options.concurrency, 10);
-      if (!Utils.isNumber(this.options.concurrency) || isNaN(this.options.concurrency) || this.options.concurrency < 0) {
+      if (!utils.isNumber(this.options.concurrency) || isNaN(this.options.concurrency) || this.options.concurrency < 0) {
         this.options.concurrency = 1;
       }
 
@@ -247,15 +249,28 @@
     _getInterval: function _getInterval (interval) {
       if (!interval) { return 0; }
 
-      if (Utils.isFunction(interval)) {
+      if (utils.isFunction(interval)) {
         interval = interval.apply(this);
       }
-      interval = Utils.isNumber(interval) ? parseInt(interval, 10) : 0;
+      interval = utils.isNumber(interval) ? parseInt(interval, 10) : 0;
       if (isNaN(interval) || interval < 0) {
         interval = 0;
       }
 
       return interval;
+    },
+
+    _run: function () {
+      var count = this.options.concurrency;
+      while (count--) {
+
+        //console.log([
+        //  '_run',
+        //  'count', count
+        //].join(' | '));
+
+        this.nextTask();
+      }
     },
 
     /**
@@ -276,9 +291,7 @@
 
       this.emit('start');
 
-      for(var i = 0; i < this.options.concurrency; i++) {
-        this.nextTask();
-      }
+      this._run();
 
       return this;
     },
@@ -308,7 +321,7 @@
       this._state.stopped = false;
 
       this.emit('resume');
-      this.nextTask();
+      this._run();
 
       return this;
     },
@@ -375,7 +388,9 @@
 
       //console.log('push tasks', length);
 
-      this.nextTask();
+      if (!this.isPaused() && !this.isStopped()) {
+        this.nextTask();
+      }
 
       return length;
     },
@@ -391,7 +406,9 @@
       var result = Array.prototype.unshift.apply(this.tasks, newTasks);
       this._updateLength();
 
-      this.nextTask();
+      if (!this.isPaused() && !this.isStopped()) {
+        this.nextTask();
+      }
 
       return result;
     },
@@ -462,7 +479,9 @@
       var deletedTasks = Array.prototype.splice.apply(this.tasks, args);
       this._updateLength();
 
-      this.nextTask();
+      if (!this.isPaused() && !this.isStopped()) {
+        this.nextTask();
+      }
 
       return deletedTasks;
     },
