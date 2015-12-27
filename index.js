@@ -158,7 +158,7 @@ extend(UniversalQueue.prototype, {
     //].join(' | '));
 
     if (delay) {
-      // todo вызывается 2 раза
+      // todo здесь, с какого-то хрена происходит 2 вызова подряд
       self.emit('waiting:start', delay);
       setTimeout(function () {
         self.emit('waiting:end', delay);
@@ -260,7 +260,8 @@ extend(UniversalQueue.prototype, {
 
   _run: function () {
     var count = this.options.concurrency;
-    while (count--) {
+    var startCount = (this.length < count) ? this.length : count;
+    while (startCount--) {
 
       //console.log([
       //  '_run',
@@ -504,7 +505,7 @@ extend(UniversalQueue.prototype, {
    */
   lastIndexOf: function lastIndexOf (searchElement, fromIndex) {
     return Array.prototype.lastIndexOf.apply(this.tasks, arguments);
-  },
+  }
 });
 
 
